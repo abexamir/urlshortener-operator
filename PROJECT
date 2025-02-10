@@ -5,8 +5,10 @@
 domain: tapsi.ir
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v1-alpha: {}
 projectName: url-shortener-operator
-repo: github.com/yourusername/url-shortener-operator
+repo: github.com/abexamir/url-shortener-operator
 resources:
 - api:
     crdVersion: v1
@@ -15,6 +17,6 @@ resources:
   domain: tapsi.ir
   group: urlshortener
   kind: ShortURL
-  path: github.com/yourusername/url-shortener-operator/api/v1
+  path: github.com/abexamir/url-shortener-operator/api/v1
   version: v1
 version: "3"
