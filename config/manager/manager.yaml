@@ -65,6 +65,11 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+        - name: REDIS_SERVICE_HOST
+          value: urlshortener-redis
+        - name: REDIS_SERVICE_PORT
+          value: "6379"
         ports: 
         - containerPort: 8082
           name: httpserver
@@ -103,7 +108,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: url-shortener-redirect
+  name: httpredirect
 spec:
   selector:
     control-plane: controller-manager
@@ -114,7 +119,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: url-shortener-ingress
+  name: httpredirect
 spec:
   rules:
   - host: ourtinyurl.local

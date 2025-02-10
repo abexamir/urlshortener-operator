@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis
-  namespace: url-shortener-operator-system
+  namespace: system
 spec:
   selector:
     matchLabels:
@@ -22,8 +22,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: redis-service
-  namespace: url-shortener-operator-system
+  name: redis
+  namespace: system
 spec:
   selector:
     app: redis

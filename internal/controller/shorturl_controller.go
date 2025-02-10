@@ -147,7 +147,7 @@ func (r *ShortURLReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	log := log.Log.WithName("setup")
 	log.Info("Initializing Redis client")
 	redisClient := redis.NewClient(&redis.Options{
-		Addr: "redis-service:6379",
+		Addr: constants.RedisServiceAddr,
 	})
 
 	// Wait for Redis to be ready
