@@ -1,0 +1,36 @@
+{{- if .Values.rbac.enable }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+  name: url-shortener-operator-manager-role
+rules:
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls/status
+  verbs:
+  - get
+  - patch
+  - update
+{{- end -}}

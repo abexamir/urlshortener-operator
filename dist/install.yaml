@@ -1,0 +1,467 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+    control-plane: controller-manager
+  name: urlshortener-operator
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.1
+  name: shorturls.urlshortener.tapsi.ir
+spec:
+  group: urlshortener.tapsi.ir
+  names:
+    kind: ShortURL
+    listKind: ShortURLList
+    plural: shorturls
+    singular: shorturl
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.targetURL
+      name: Target URL
+      type: string
+    - jsonPath: .status.shortPath
+      name: Short Path
+      type: string
+    - jsonPath: .status.clickCount
+      name: Clicks
+      type: integer
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: ShortURL is the Schema for the shorturls API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ShortURLSpec defines the desired state of ShortURL
+            properties:
+              targetURL:
+                description: TargetURL is the original URL to be shortened
+                format: url
+                type: string
+            required:
+            - targetURL
+            type: object
+          status:
+            description: ShortURLStatus defines the observed state of ShortURL
+            properties:
+              clickCount:
+                description: ClickCount is the number of times the short URL has been
+                  accessed
+                format: int64
+                minimum: 0
+                type: integer
+              shortPath:
+                description: ShortPath is the generated short path
+                pattern: ^/[a-zA-Z0-9]+$
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+  name: urlshortener-controller-manager
+  namespace: urlshortener-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+  name: urlshortener-leader-election-role
+  namespace: urlshortener-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: urlshortener-manager-role
+rules:
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: urlshortener-metrics-auth-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: urlshortener-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+  name: urlshortener-shorturl-admin-role
+rules:
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls
+  verbs:
+  - '*'
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+  name: urlshortener-shorturl-editor-role
+rules:
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+  name: urlshortener-shorturl-viewer-role
+rules:
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - urlshortener.tapsi.ir
+  resources:
+  - shorturls/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+  name: urlshortener-leader-election-rolebinding
+  namespace: urlshortener-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: urlshortener-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: urlshortener-controller-manager
+  namespace: urlshortener-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+  name: urlshortener-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: urlshortener-manager-role
+subjects:
+- kind: ServiceAccount
+  name: urlshortener-controller-manager
+  namespace: urlshortener-operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: urlshortener-metrics-auth-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: urlshortener-metrics-auth-role
+subjects:
+- kind: ServiceAccount
+  name: urlshortener-controller-manager
+  namespace: urlshortener-operator
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+    control-plane: controller-manager
+  name: urlshortener-controller-manager-metrics-service
+  namespace: urlshortener-operator
+spec:
+  ports:
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    app.kubernetes.io/name: url-shortener-operator
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urlshortener-httpredirect
+  namespace: urlshortener-operator
+spec:
+  ports:
+  - port: 80
+    targetPort: 8082
+  selector:
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: urlshortener-redis
+  namespace: urlshortener-operator
+spec:
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: redis
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: url-shortener-operator
+    control-plane: controller-manager
+  name: urlshortener-controller-manager
+  namespace: urlshortener-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: url-shortener-operator
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/name: url-shortener-operator
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --leader-elect
+        - --health-probe-bind-address=:8081
+        command:
+        - /manager
+        env:
+        - name: REDIS_SERVICE_HOST
+          value: urlshortener-redis
+        - name: REDIS_SERVICE_PORT
+          value: "6379"
+        image: abexamir/urlshortener-controller:v0.1
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 8082
+          name: httpserver
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts: []
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: urlshortener-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes: []
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: urlshortener-redis
+  namespace: urlshortener-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - image: redis:7-alpine
+        name: redis
+        ports:
+        - containerPort: 6379
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: urlshortener-httpredirect
+  namespace: urlshortener-operator
+spec:
+  rules:
+  - host: ourtinyurl.local
+    http:
+      paths:
+      - backend:
+          service:
+            name: url-shortener-redirect
+            port:
+              number: 80
+        path: /
+        pathType: Prefix

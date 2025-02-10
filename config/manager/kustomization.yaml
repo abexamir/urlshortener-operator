@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: abexamir/urlshortener-controller
-  newTag: test
+  newTag: v0.1
