@@ -125,7 +125,7 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Requeue periodically to update click count
-	return ctrl.Result{RequeueAfter: time.Second * constants.ReconcileInterval}, nil
+	return ctrl.Result{RequeueAfter: time.Duration(constants.ReconcileInterval) * time.Second}, nil
 }
 
 func (r *ShortURLReconciler) generateShortPath(url string) (string, error) {
@@ -139,7 +139,7 @@ func (r *ShortURLReconciler) isValidURL(s string) bool {
 	if err != nil {
 		return false
 	}
-	return parsed.Host != "" && (parsed.Scheme == constants.SchemeHTTP || parsed.Scheme == constants.SchemeHTTPS)
+	return parsed.Host != "" && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
 
 func (r *ShortURLReconciler) SetupWithManager(mgr ctrl.Manager) error {
