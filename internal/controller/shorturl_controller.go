@@ -19,14 +19,16 @@ import (
 
 	urlshortenerv1 "github.com/abexamir/url-shortener-operator/api/v1"
 
-	httpserver "github.com/abexamir/url-shortener-operator/pkg/httpserver"
+	"github.com/abexamir/url-shortener-operator/internal/constants"
+	httpserver "github.com/abexamir/url-shortener-operator/internal/service/httpserver"
+	redisHandler "github.com/abexamir/url-shortener-operator/internal/service/redis"
 )
 
 // ShortURLReconciler reconciles a ShortURL object
 type ShortURLReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
-	Redis  *redis.Client
+	Scheme       *runtime.Scheme
+	RedisService *redisHandler.RedisService
 }
 
 //+kubebuilder:rbac:groups=urlshortener.tapsi.ir,resources=shorturls,verbs=get;list;watch;create;update;patch;delete
@@ -39,24 +41,24 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	shortURL := &urlshortenerv1.ShortURL{}
 	if err := r.Get(ctx, req.NamespacedName, shortURL); err != nil {
-		if client.IgnoreNotFound(err) == nil {
-			// Handle deletion
-			log.Info("ShortURL resource not found, cleaning up Redis entries", "NamespacedName", req.NamespacedName)
-			if shortURL.Status.ShortPath != "" {
-				if err := r.Redis.Del(ctx, shortURL.Status.ShortPath).Err(); err != nil {
-					log.Error(err, "Failed to delete Redis entry")
-					return ctrl.Result{}, err
-				}
-			}
-			return ctrl.Result{}, nil
-		}
-		log.Error(err, "Failed to fetch ShortURL resource")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Validate URL
 	if !r.isValidURL(shortURL.Spec.TargetURL) {
-		log.Error(nil, "Invalid target URL", "TargetURL", shortURL.Spec.TargetURL)
+		log.Error(nil, "Invalid target URL", "url", shortURL.Spec.TargetURL)
 		return ctrl.Result{}, fmt.Errorf("invalid target URL")
+	}
+
+	// Handle deletion
+	if !shortURL.DeletionTimestamp.IsZero() {
+		if shortURL.Status.ShortPath != "" {
+			if err := r.RedisService.DeleteURL(ctx, shortURL.Status.ShortPath); err != nil {
+				log.Error(err, "Failed to delete URL from Redis")
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// Handle new resources or updates
@@ -67,7 +69,7 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		needsNewShortPath = true
 	} else {
 		// For existing resources, check if target URL changed
-		existingURL, err := r.Redis.Get(ctx, shortURL.Status.ShortPath).Result()
+		existingURL, err := r.RedisService.GetURL(ctx, shortURL.Status.ShortPath)
 		if err != nil && err != redis.Nil {
 			log.Error(err, "Failed to get existing URL from Redis")
 			return ctrl.Result{}, err
@@ -77,14 +79,17 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			needsNewShortPath = true
 			// Clean up old path if it exists
 			if shortURL.Status.ShortPath != "" {
-				if err := r.Redis.Del(ctx, shortURL.Status.ShortPath).Err(); err != nil {
+				if err := r.RedisService.DeleteURL(ctx, shortURL.Status.ShortPath); err != nil {
+					if err == redis.Nil {
+						// Ignore if Redis entry doesn't exist
+						return ctrl.Result{}, nil
+					}
 					log.Error(err, "Failed to delete old Redis entry")
 					return ctrl.Result{}, err
 				}
 			}
 		}
 	}
-
 	if needsNewShortPath {
 		shortPath, err := r.generateShortPath(shortURL.Spec.TargetURL)
 		if err != nil {
@@ -92,7 +97,7 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 		}
 
-		if err := r.Redis.Set(ctx, shortPath, shortURL.Spec.TargetURL, 0).Err(); err != nil {
+		if err := r.RedisService.SetURL(ctx, shortPath, shortURL.Spec.TargetURL); err != nil {
 			log.Error(err, "Failed to set Redis entry")
 			return ctrl.Result{}, err
 		}
@@ -105,8 +110,7 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Update click count
-	clickKey := fmt.Sprintf("clicks:%s", shortURL.Status.ShortPath)
-	clickCount, err := r.Redis.Get(ctx, clickKey).Int64()
+	clickCount, err := r.RedisService.GetClickCount(ctx, shortURL.Status.ShortPath)
 	if err != nil && err != redis.Nil {
 		log.Error(err, "Failed to get click count")
 		return ctrl.Result{}, err
@@ -121,21 +125,21 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	// Requeue periodically to update click count
-	return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+	return ctrl.Result{RequeueAfter: time.Second * constants.ReconcileInterval}, nil
 }
 
 func (r *ShortURLReconciler) generateShortPath(url string) (string, error) {
 	hash := sha256.Sum256([]byte(url))
 	encoded := base64.URLEncoding.EncodeToString(hash[:])
-	return "/" + encoded[:4], nil
+	return "/" + encoded[:constants.ShortPathLength], nil
 }
 
 func (r *ShortURLReconciler) isValidURL(s string) bool {
 	parsed, err := url.ParseRequestURI(s)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+	if err != nil {
 		return false
 	}
-	return true
+	return parsed.Host != "" && (parsed.Scheme == constants.SchemeHTTP || parsed.Scheme == constants.SchemeHTTPS)
 }
 
 func (r *ShortURLReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -156,16 +160,15 @@ func (r *ShortURLReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		time.Sleep(1 * time.Second)
 	}
 
+	r.RedisService, _ = redisHandler.NewRedisService(constants.RedisServiceAddr)
 	// Start HTTP server
-	redirectServer := httpserver.NewRedirectServer(redisClient)
+	redirectServer := httpserver.NewRedirectServer(r.RedisService)
 	go func() {
 		if err := redirectServer.Start(); err != nil {
 			log.Error(err, "unable to start HTTP server")
 			os.Exit(1)
 		}
 	}()
-
-	r.Redis = redisClient
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&urlshortenerv1.ShortURL{}).
