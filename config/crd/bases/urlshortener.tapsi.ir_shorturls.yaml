@@ -53,6 +53,7 @@ spec:
                 description: TargetURL is the original URL to be shortened
                 format: url
                 type: string
+                pattern: ^https?:\/\/.+$
             required:
             - targetURL
             type: object
