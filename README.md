@@ -1,135 +1,166 @@
-# url-shortener-operator
-// TODO(user): Add simple overview of use/purpose
+# URL Shortener Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes operator that manages URL shortening services within a cluster. It creates and manages short URLs through CustomResources and provides a redirection service.
 
-## Getting Started
+## Features
 
-### Prerequisites
-- go version v1.23.0+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+- Custom Resource Definition (CRD) for managing short URLs
+- Automatic short path generation using SHA-256 hashing
+- Redis-backed storage for URL mappings
+- Click tracking for each short URL
+- HTTP redirection server (port 8082)
+- Metrics endpoint (port 8080)
+- Health probes (port 8081)
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+## Architecture
 
+The operator consists of three main components:
+
+1. **Controller**: Watches for ShortURL resources and manages their lifecycle
+2. **Redis Service**: Handles URL storage and click tracking
+3. **HTTP Server**: Handles redirections for short URLs
+
+## Prerequisites
+
+- Go version v1.23.0+
+- Docker version 17.03+
+- kubectl version v1.11.3+
+- Access to a Kubernetes v1.11.3+ cluster
+
+## Installation
+
+### Using pre-built images
+
+1. Install the CRDs and the Operator:
 ```sh
-make docker-build docker-push IMG=<some-registry>/url-shortener-operator:tag
+kubectl apply -f https://raw.githubusercontent.com/abexamir/urlshortener-operator/refs/heads/main/dist/install.yaml
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
 
-**Install the CRDs into the cluster:**
+### Using the Helm chart
 
+1. Clone the repository
 ```sh
-make install
+git clone git@github.com:abexamir/urlshortener-operator.git && cd urlshortener-operator # clone the repository first
+```
+2. Install helm chart 
+```sh
+helm install urlshortener-operator ./dist/chart --namespace urlshortener-operator --create-namespace
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
 
+### Building from source
+
+1. Clone the repository:
 ```sh
-make deploy IMG=<some-registry>/url-shortener-operator:tag
+git clone git@github.com:abexamir/urlshortener-operator.git && cd urlshortener-operator # clone the repository first
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
-
+2. Build and push the operator image:
 ```sh
-kubectl apply -k config/samples/
+make docker-build docker-push IMG=<your-registry>/url-shortener-operator:tag
 ```
 
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
+3. Deploy to cluster:
 ```sh
-kubectl delete -k config/samples/
+make deploy IMG=<your-registry>/url-shortener-operator:tag
 ```
 
-**Delete the APIs(CRDs) from the cluster:**
+## Usage
 
-```sh
-make uninstall
+1. Create a ShortURL resource:
+```yaml
+apiVersion: urlshortener.tapsi.ir/v1
+kind: ShortURL
+metadata:
+  name: example-url
+spec:
+  targetURL: "https://example.com"
 ```
 
-**UnDeploy the controller from the cluster:**
+2. Apply the resource:
+```sh
+kubectl apply -f shorturl.yaml
+```
 
+3. Check the status:
+```sh
+kubectl get shorturl example-url -o yaml
+```
+
+The status section will contain:
+- `shortPath`: The generated short path
+- `clickCount`: Number of times the URL has been accessed  
+Please note that the clickCount field get eventually consistent and doesn't get updated instantly (To put less pressure on the API Server)
+
+4. Access the shortened URL:
+```sh
+http://<operator-service>/<shortPath> # e.g. http://<operator-service>/abc
+# The pod will listen on port 8082 and there's a service in front of it with port 80, if you have ingress controller installed, you can enable the ingress resource by setting `ingress.enable` to true and set `ingress.host` to your ingress host in the helm chart values. For test purposes, just use simple port-forwarding.
+```
+
+5. If you update the `targetURL` field, the short path will be updated immediately and the click count will be reset.
+
+## Development
+
+### Local Development
+
+1. Install dependencies:
+```sh
+go mod download
+```
+
+2. Run the operator locally:
+```sh
+make run
+```
+
+
+### Building
+
+```sh
+# Build binary
+make build
+
+# Build Docker image
+make docker-build IMG=<your-registry>/url-shortener-operator:tag
+```
+
+## Monitoring
+
+The operator exposes metrics in Prometheus format at `:8080/metrics` (or `:8443/metrics` if secure metrics are enabled).
+
+Health endpoints:
+- Liveness: `:8081/healthz`
+- Readiness: `:8081/readyz`
+
+## Cleanup
+
+1. Remove all ShortURL resources:
+```sh
+kubectl delete shorturls --all
+```
+
+2. Uninstall the operator:
 ```sh
 make undeploy
 ```
 
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
+3. Remove the CRDs:
 ```sh
-make build-installer IMG=<some-registry>/url-shortener-operator:tag
+make uninstall
 ```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/url-shortener-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v1-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
 
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
 
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
 Copyright 2025.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.

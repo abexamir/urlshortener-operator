@@ -1,0 +1,19 @@
+Add README.md
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# Date:      Tue Feb 11 02:12:58 2025 +0330
+#
+# interactive rebase in progress; onto 551d6f8
+# Last commands done (7 commands done):
+#    pick ed4aa48 Update Project Info
+#    edit 326dda6 Add README.md
+# Next commands to do (2 remaining commands):
+#    pick 9b08a99 Delete tests (as there aren't any written!)
+#    pick 793053b Fix Linting
+# You are currently editing a commit while rebasing branch 'main' on '551d6f8'.
+#
+# Changes to be committed:
+#	modified:   README.md
+#
