@@ -31,9 +31,9 @@ type ShortURLReconciler struct {
 	RedisService *redisHandler.RedisService
 }
 
-//+kubebuilder:rbac:groups=urlshortener.tapsi.ir,resources=shorturls,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=urlshortener.tapsi.ir,resources=shorturls/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=urlshortener.tapsi.ir,resources=shorturls/finalizers,verbs=update
+// +kubebuilder:rbac:groups=urlshortener.tapsi.ir,resources=shorturls,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=urlshortener.tapsi.ir,resources=shorturls/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=urlshortener.tapsi.ir,resources=shorturls/finalizers,verbs=update
 
 func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
@@ -91,11 +91,7 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 	if needsNewShortPath {
-		shortPath, err := r.generateShortPath(shortURL.Spec.TargetURL)
-		if err != nil {
-			log.Error(err, "Failed to generate short path")
-			return ctrl.Result{}, err
-		}
+		shortPath := r.generateShortPath(shortURL.Spec.TargetURL)
 
 		if err := r.RedisService.SetURL(ctx, shortPath, shortURL.Spec.TargetURL); err != nil {
 			log.Error(err, "Failed to set Redis entry")
@@ -128,10 +124,10 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{RequeueAfter: time.Duration(constants.ReconcileInterval) * time.Second}, nil
 }
 
-func (r *ShortURLReconciler) generateShortPath(url string) (string, error) {
+func (r *ShortURLReconciler) generateShortPath(url string) string {
 	hash := sha256.Sum256([]byte(url))
 	encoded := base64.URLEncoding.EncodeToString(hash[:])
-	return "/" + encoded[:constants.ShortPathLength], nil
+	return "/" + encoded[:constants.ShortPathLength]
 }
 
 func (r *ShortURLReconciler) isValidURL(s string) bool {

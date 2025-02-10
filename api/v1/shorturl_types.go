@@ -24,11 +24,11 @@ type ShortURLStatus struct {
 	ClickCount int64 `json:"clickCount,omitempty"`
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-//+kubebuilder:printcolumn:name="Target URL",type=string,JSONPath=`.spec.targetURL`
-//+kubebuilder:printcolumn:name="Short Path",type=string,JSONPath=`.status.shortPath`
-//+kubebuilder:printcolumn:name="Clicks",type=integer,JSONPath=`.status.clickCount`
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Target URL",type=string,JSONPath=`.spec.targetURL`
+// +kubebuilder:printcolumn:name="Short Path",type=string,JSONPath=`.status.shortPath`
+// +kubebuilder:printcolumn:name="Clicks",type=integer,JSONPath=`.status.clickCount`
 
 // ShortURL is the Schema for the shorturls API
 type ShortURL struct {
