@@ -35,19 +35,18 @@ type ShortURLReconciler struct {
 
 func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-
 	log.Info("Starting Reconcile for ShortURL", "NamespacedName", req.NamespacedName)
 
 	shortURL := &urlshortenerv1.ShortURL{}
-	log.Info("Fetching ShortURL resource", "NamespacedName", req.NamespacedName)
 	if err := r.Get(ctx, req.NamespacedName, shortURL); err != nil {
 		if client.IgnoreNotFound(err) == nil {
 			// Handle deletion
 			log.Info("ShortURL resource not found, cleaning up Redis entries", "NamespacedName", req.NamespacedName)
-			shortPath := req.NamespacedName.Name
-			if err := r.Redis.Del(ctx, shortPath).Err(); err != nil {
-				log.Error(err, "Failed to delete Redis entry", "ShortPath", shortPath)
-				return ctrl.Result{}, err
+			if shortURL.Status.ShortPath != "" {
+				if err := r.Redis.Del(ctx, shortURL.Status.ShortPath).Err(); err != nil {
+					log.Error(err, "Failed to delete Redis entry")
+					return ctrl.Result{}, err
+				}
 			}
 			return ctrl.Result{}, nil
 		}
@@ -60,43 +59,60 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, fmt.Errorf("invalid target URL")
 	}
 
-	// Check if the target URL has changed
-	if shortURL.Status.ShortPath != "" && shortURL.Spec.TargetURL != "" {
+	// Handle new resources or updates
+	needsNewShortPath := false
+
+	// For new resources
+	if shortURL.Status.ShortPath == "" {
+		needsNewShortPath = true
+	} else {
+		// For existing resources, check if target URL changed
 		existingURL, err := r.Redis.Get(ctx, shortURL.Status.ShortPath).Result()
 		if err != nil && err != redis.Nil {
 			log.Error(err, "Failed to get existing URL from Redis")
 			return ctrl.Result{}, err
 		}
-		if existingURL != shortURL.Spec.TargetURL {
-			log.Info("Target URL has changed, updating short path and Redis entry", "OldURL", existingURL, "NewURL", shortURL.Spec.TargetURL)
-			shortPath, err := r.generateShortPath(shortURL.Spec.TargetURL)
-			if err != nil {
-				log.Error(err, "Failed to generate short path")
-				return ctrl.Result{}, err
-			}
-			if err := r.Redis.Set(ctx, shortPath, shortURL.Spec.TargetURL, 0).Err(); err != nil {
-				log.Error(err, "Failed to update Redis entry")
-				return ctrl.Result{}, err
-			}
-			shortURL.Status.ShortPath = shortPath
-			if err := r.Status().Update(ctx, shortURL); err != nil {
-				log.Error(err, "Failed to update ShortURL status")
-				return ctrl.Result{}, err
+		// If Redis entry doesn't exist or URL has changed, we need a new short path
+		if err == redis.Nil || existingURL != shortURL.Spec.TargetURL {
+			needsNewShortPath = true
+			// Clean up old path if it exists
+			if shortURL.Status.ShortPath != "" {
+				if err := r.Redis.Del(ctx, shortURL.Status.ShortPath).Err(); err != nil {
+					log.Error(err, "Failed to delete old Redis entry")
+					return ctrl.Result{}, err
+				}
 			}
 		}
 	}
 
+	if needsNewShortPath {
+		shortPath, err := r.generateShortPath(shortURL.Spec.TargetURL)
+		if err != nil {
+			log.Error(err, "Failed to generate short path")
+			return ctrl.Result{}, err
+		}
+
+		if err := r.Redis.Set(ctx, shortPath, shortURL.Spec.TargetURL, 0).Err(); err != nil {
+			log.Error(err, "Failed to set Redis entry")
+			return ctrl.Result{}, err
+		}
+
+		shortURL.Status.ShortPath = shortPath
+		if err := r.Status().Update(ctx, shortURL); err != nil {
+			log.Error(err, "Failed to update ShortURL status")
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Update click count
-	log.Info("Fetching click count from Redis", "ShortPath", shortURL.Status.ShortPath)
-	clickCount, err := r.Redis.Get(ctx, fmt.Sprintf("clicks:%s", shortURL.Status.ShortPath)).Int64()
+	clickKey := fmt.Sprintf("clicks:%s", shortURL.Status.ShortPath)
+	clickCount, err := r.Redis.Get(ctx, clickKey).Int64()
 	if err != nil && err != redis.Nil {
 		log.Error(err, "Failed to get click count")
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Comparing click count", "RedisClickCount", clickCount, "StatusClickCount", shortURL.Status.ClickCount)
 	if clickCount != shortURL.Status.ClickCount {
-		log.Info("Updating click count in ShortURL status", "ClickCount", clickCount)
 		shortURL.Status.ClickCount = clickCount
 		if err := r.Status().Update(ctx, shortURL); err != nil {
 			log.Error(err, "Failed to update click count")
@@ -104,8 +120,8 @@ func (r *ShortURLReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	log.Info("Reconcile completed successfully", "NamespacedName", req.NamespacedName)
-	return ctrl.Result{}, nil
+	// Requeue periodically to update click count
+	return ctrl.Result{RequeueAfter: time.Second * 30}, nil
 }
 
 func (r *ShortURLReconciler) generateShortPath(url string) (string, error) {
